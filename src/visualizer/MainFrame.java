@@ -1,25 +1,29 @@
 package visualizer;
 
+import visualizer.view.GraphMenuBar;
 import visualizer.view.dialogue.AddEdgeDialogue;
 import visualizer.view.dialogue.AddVertexDialogue;
 import visualizer.view.graph.Vertex;
-import visualizer.view.graph.WeightedEdge;
+import visualizer.view.graph.algorithm.*;
+import visualizer.view.graph.util.EdgeManager;
+import visualizer.view.graph.util.GraphManager;
+import visualizer.view.graph.util.VertexManager;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedHashSet;
 
 public class MainFrame extends JFrame {
-    private final JPanel graph = new JPanel();
-    private final AddVertexDialogue vertexDialogue = new AddVertexDialogue();
-    private final AddEdgeDialogue edgeDialogue = new AddEdgeDialogue();
+    private final JPanel graph;
     private final JLabel modeLabel;
-    private final HashSet<Vertex> selectedVertices = new LinkedHashSet<>();   //todo
     private GraphMode graphMode = GraphMode.ADD_VERTEX;
+
+    private final GraphManager graphManager = new GraphManager(
+            new VertexManager(new AddVertexDialogue(), c -> addComponentToGraph(processVertex(c)), this::removeComponentFromGraph),
+            new EdgeManager(new AddEdgeDialogue(), this::addComponentToGraph, this::removeComponentFromGraph));
+
+    private final AlgorithmPerformer algorithmPerformer = new AlgorithmPerformer();
 
     public MainFrame() {
         super("Graph-Algorithms Visualizer");
@@ -28,8 +32,53 @@ public class MainFrame extends JFrame {
 
         initMenuBar();
 
+        graph = createGraph();
+        modeLabel = createModelLabel();
+        arrangeComponents();
+
+        setVisible(true);
+    }
+
+    private void arrangeComponents() {
         setLayout(new GridBagLayout());
 
+        GridBagConstraints c = new GridBagConstraints();
+        c.anchor = GridBagConstraints.NORTHEAST;
+        add(modeLabel, c);
+
+        c = new GridBagConstraints();
+        c.gridx = 0;
+        c.gridy = 0;
+        c.anchor = GridBagConstraints.SOUTH;
+        add(algorithmPerformer.getBottomMessageLabel(), c);
+
+        c = new GridBagConstraints();
+        c.gridx = 0;
+        c.gridy = 0;
+        c.fill = GridBagConstraints.BOTH;
+        c.weightx = 1;
+        c.weighty = 1;
+        add(graph, c);
+    }
+
+    public Vertex processVertex(Vertex v) {
+        v.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                switch (graphMode) {
+                    case ADD_EDGE -> graphManager.handleNewSelectedVertex(v);
+                    case REMOVE_VERTEX -> graphManager.handleDeleteVertex(v);
+                    case NONE -> algorithmPerformer.acceptVertex(v);
+                    default -> {
+                    }
+                }
+            }
+        });
+        return v;
+    }
+
+    private JPanel createGraph() {
+        JPanel graph = new JPanel();
         graph.setName("Graph");
 
         graph.setSize(getSize());
@@ -39,117 +88,84 @@ public class MainFrame extends JFrame {
         graph.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (graphMode != GraphMode.ADD_VERTEX) return;
-                vertexDialogue.show(s -> {
-                    if (s == null) return false;
-                    s = s.trim();
-                    if (s.length() != 1) return true;
-
-                    graph.add(createVertex(s.substring(0, 1), e.getX(), e.getY()));
-                    refreshGraph();
-                    return false;
-                });
+                switch(graphMode) {
+                    case ADD_VERTEX -> graphManager.handleNewPosition(e.getPoint());
+                    case REMOVE_EDGE -> graphManager.handleDeleteEdges(e.getPoint());
+                    default -> {}
+                }
             }
         });
 
-        modeLabel = new JLabel(graphMode.getText(), SwingConstants.RIGHT);
-        modeLabel.setName("Mode");
-        modeLabel.setForeground(Color.GREEN);
-        GridBagConstraints c = new GridBagConstraints();
-        c.anchor = GridBagConstraints.NORTHEAST;
-
-        add(modeLabel, c);
-
-        c = new GridBagConstraints();
-        c.gridx = 0;
-        c.gridy = 0;
-        c.fill = GridBagConstraints.BOTH;
-        c.weightx = 1;
-        c.weighty = 1;
-
-        add(graph, c);
-
-        setVisible(true);
+        return graph;
     }
 
-    public Vertex createVertex(String label, int x, int y) {
-        Vertex v = new Vertex(label, x, y);
-        v.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                if (graphMode != GraphMode.ADD_EDGE) return;
-                selectedVertices.add(v);
-                if (selectedVertices.size() != 2) return;
-
-                edgeDialogue.show(s -> {
-                    if (s == null) return false;
-
-                    s = s.trim();
-                    if (!s.matches("-?[1-9]\\d*|0")) return true;
-
-                    int weight = Integer.parseInt(s);
-                    Iterator<Vertex> iterator = selectedVertices.iterator();
-                    Vertex v1 = iterator.next();
-                    Vertex v2 = iterator.next();
-
-                    selectedVertices.clear();
-
-                    WeightedEdge edge = new WeightedEdge(v1, v2, weight);
-                    edge.addToGraph(component -> {
-                        component.setVisible(true);
-                        graph.add(component);
-                        refreshGraph();
-                    });
-                    return false;
-                });
-            }
-        });
-        return v;
+    private JLabel createModelLabel() {
+        JLabel label = new JLabel(graphMode.getText(), SwingConstants.RIGHT);
+        label.setName("Mode");
+        label.setForeground(Color.GREEN);
+        return label;
     }
 
     private void initMenuBar() {
-        JMenuBar menuBar = new JMenuBar();
-        JMenu modeMenu = new JMenu("Mode");
-        menuBar.add(modeMenu);
+        GraphMenuBar graphMenuBar = new GraphMenuBar();
+        setJMenuBar(graphMenuBar.getMenuBar());
 
-        JMenuItem addVertexItem = new JMenuItem("Add a Vertex");
-        JMenuItem addEdgeItem = new JMenuItem("Add an Edge");
-        JMenuItem noneItem = new JMenuItem("None");
-
-        modeMenu.add(addVertexItem);
-        modeMenu.add(addEdgeItem);
-        modeMenu.add(noneItem);
-
-        noneItem.addActionListener(e -> {
-            graphMode = GraphMode.NONE;
-            updateModeLabel();
+        graphMenuBar.getFileNewItem().addActionListener(e -> {
+            graph.removeAll();
+            graphManager.reset();
+            refreshGraph();
+            setGraphMode(GraphMode.ADD_VERTEX);
         });
-        addVertexItem.addActionListener(e -> {
-            graphMode = GraphMode.ADD_VERTEX;
-            updateModeLabel();
-        });
-        addEdgeItem.addActionListener(e -> {
-            graphMode = GraphMode.ADD_EDGE;
-            updateModeLabel();
-            selectedVertices.clear();    //todo
+        graphMenuBar.getFileExitItem().addActionListener(e -> System.exit(0));
+
+        graphMenuBar.getModeNoneItem().addActionListener(e -> setGraphMode(GraphMode.NONE));
+        graphMenuBar.getModeAddVertexItem().addActionListener(e -> setGraphMode(GraphMode.ADD_VERTEX));
+        graphMenuBar.getModeRemoveVertexItem().addActionListener(e -> setGraphMode(GraphMode.REMOVE_VERTEX));
+        graphMenuBar.getModeRemoveEdgeItem().addActionListener(e -> setGraphMode(GraphMode.REMOVE_EDGE));
+        graphMenuBar.getModeAddEdgeItem().addActionListener(e -> {
+            setGraphMode(GraphMode.ADD_EDGE);
+            graphManager.clearVertexSelectionCache();    //todo
         });
 
-        setJMenuBar(menuBar);
-
-        menuBar.setName("MenuBar");
-        modeMenu.setName("Mode");
-        addVertexItem.setName("Add a Vertex");
-        addEdgeItem.setName("Add an Edge");
-        noneItem.setName("None");
+        graphMenuBar.getAlgorithmBreadthFirstSearchItem().addActionListener(e -> {
+            setGraphMode(GraphMode.NONE);
+            algorithmPerformer.init(graphManager::getNeighbors, new BFSSearcher<>());
+        });
+        graphMenuBar.getAlgorithmDepthFirstSearchItem().addActionListener(e -> {
+            setGraphMode(GraphMode.NONE);
+            algorithmPerformer.init(graphManager::getNeighbors, new DFSSearcher<>());
+        });
+        graphMenuBar.getAlgorithmDijkstrasAlgorithmItem().addActionListener(e -> {
+            setGraphMode(GraphMode.NONE);
+            algorithmPerformer.init(graphManager::getNeighbors,
+                    graphManager::getWeight, new DijkstrasShortestPathFinder<>());
+        });
+        graphMenuBar.getAlgorithmPrimItem().addActionListener(e -> {
+            setGraphMode(GraphMode.NONE);
+            algorithmPerformer.init(graphManager::getNeighbors,
+                    graphManager::getWeight, new PrimsAlgorithmSpanningTreeFinder<>());
+        });
     }
 
-    private void updateModeLabel() {
+    private void setGraphMode(GraphMode mode) {
+        assert mode != null;
+        graphMode = mode;
         modeLabel.setText(graphMode.getText());
     }
 
     private void refreshGraph() {
         graph.revalidate();
-        graph.repaint();
-        modeLabel.repaint();
+        repaint();
+    }
+
+    private void addComponentToGraph(JComponent component) {
+        component.setVisible(true);
+        graph.add(component);
+        refreshGraph();
+    }
+
+    private void removeComponentFromGraph(JComponent component) {
+        graph.remove(component);
+        refreshGraph();
     }
 }
